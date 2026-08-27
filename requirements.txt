@@ -1,0 +1,31 @@
+# --- Data & DB ---
+pandas>=2.2
+numpy>=1.26
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+pyyaml>=6.0
+python-dotenv>=1.0
+pydantic>=2.6
+pydantic-settings>=2.2
+
+# --- Analytics / ML ---
+scikit-learn>=1.4
+scipy>=1.12
+statsmodels>=0.14
+xgboost>=2.0
+matplotlib>=3.8
+
+# --- Optimization (Phase 3) ---
+pulp>=2.8
+
+# --- Backend / UI (Phase 4) ---
+streamlit>=1.32
+fastapi>=0.110
+uvicorn>=0.29
+
+# --- AI Copilot (Phase 4) ---
+anthropic>=0.25
+
+# --- Testing ---
+pytest>=8.0
+pytest-mock>=3.12

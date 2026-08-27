@@ -1,0 +1,97 @@
+{
+  "overview": {
+    "n_stores": 1115,
+    "date_min": "2013-01-01",
+    "date_max": "2015-07-31",
+    "n_store_days": 1017209,
+    "n_open_store_days": 844392,
+    "pct_closed": 0.1698933060954042,
+    "total_sales": 5873180623.0,
+    "avg_daily_sales_per_open_store": 6955.514290755952,
+    "median_daily_sales_per_open_store": 6369.0
+  },
+  "sales_distribution": {
+    "mean": 6955.514290755952,
+    "std": 3104.214680428348,
+    "p10": 3762.0,
+    "p50": 6369.0,
+    "p90": 10771.0,
+    "skew": 1.5939220392699807
+  },
+  "day_of_week_avg_sales": {
+    "1": 8216.073073567897,
+    "2": 7088.1136557817745,
+    "3": 6728.122977961898,
+    "4": 6767.310158640564,
+    "5": 7072.677012406232,
+    "6": 5874.840237959711,
+    "7": 8224.723907598107
+  },
+  "monthly_avg_sales": {
+    "1": 6563.6904439271275,
+    "2": 6589.1655346883845,
+    "3": 6976.412026052571,
+    "4": 7046.228420060932,
+    "5": 7106.453154064143,
+    "6": 7000.978189788801,
+    "7": 6952.68212462173,
+    "8": 6648.98465440244,
+    "9": 6546.343034588191,
+    "10": 6602.843353599039,
+    "11": 7188.554249917317,
+    "12": 8608.956660647313
+  },
+  "promo_effect": {
+    "avg_sales_no_promo": 5929.407603487516,
+    "avg_sales_with_promo": 8228.281239386994,
+    "note": "Descriptive/correlational comparison only; not a causal uplift estimate."
+  },
+  "sales_by_store_type": {
+    "a": {
+      "mean": 6925.17,
+      "median": 6285.0,
+      "count": 457077
+    },
+    "b": {
+      "mean": 10231.41,
+      "median": 9130.0,
+      "count": 15563
+    },
+    "c": {
+      "mean": 6932.51,
+      "median": 6407.0,
+      "count": 112978
+    },
+    "d": {
+      "mean": 6822.14,
+      "median": 6395.0,
+      "count": 258774
+    }
+  },
+  "avg_sales_by_region": {
+    "Berlin": 8357.7723522176,
+    "Hamburg": 7647.051431673226,
+    "Bremen/Lower Saxony": 7535.286658239485,
+    "North Rhine-Westphalia": 7171.59810095356,
+    "Saxony": 6896.20969206779,
+    "Hesse": 6879.563227299149,
+    "Schleswig-Holstein": 6743.729619209631,
+    "Thuringia": 6702.752567793297,
+    "Bavaria": 6630.657892621406,
+    "Saxony-Anhalt": 6357.0962809917355,
+    "Baden-Wurttemberg": 6255.30869863375,
+    "Rhineland-Palatinate": 5800.355330111691
+  },
+  "demand_segment_distribution": {
+    "stable": 1089,
+    "seasonal": 24,
+    "volatile": 2
+  },
+  "charts": {
+    "day_of_week": "/Users/lakshaymalhotra/Documents/SupplySense/reports/eda/sales_by_day_of_week.png",
+    "monthly_seasonality": "/Users/lakshaymalhotra/Documents/SupplySense/reports/eda/sales_by_month.png",
+    "sample_store_timeseries": "/Users/lakshaymalhotra/Documents/SupplySense/reports/eda/sample_store_timeseries.png",
+    "demand_segments": "/Users/lakshaymalhotra/Documents/SupplySense/reports/eda/demand_segments.png",
+    "sales_histogram": "/Users/lakshaymalhotra/Documents/SupplySense/reports/eda/sales_histogram.png"
+  }
+}
