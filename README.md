@@ -331,7 +331,78 @@ pytest
 
 ---
 
+## Phase 4 — SupplySense Application & AI Copilot (complete)
+
+### Streamlit application
+
+A 7-page multi-page Streamlit app (`app/ui/`), connected live to the real database and engines from Phases 1-3 -- no mock data anywhere.
+
+| Page | What it does |
+|---|---|
+| **Home (Overview)** | Business-wide KPIs (stores tracked, best model, avg stockout risk, total expected cost), exception alerts (high stockout-risk stores, budget-constrained stores), store directory |
+| **Forecast Explorer** | Historical demand + P10/P50/P90 forecast chart per store, day-of-week seasonality, per-store model performance |
+| **Inventory Recommendations** | Live-computed (not cached) recommendation via the real Monte Carlo optimizer, with adjustable service level/budget/capacity, full cost breakdown, and plain-language decision drivers |
+| **Optimization** | Configure global cost/constraint assumptions; run the real portfolio MILP (PuLP/CBC) across a region's stores and see the budget allocation |
+| **Scenario Simulator** | Preset or fully custom what-if scenarios, baseline-vs-scenario comparison table with deltas |
+| **Model Performance** | Full benchmark comparison, per-store winning-model breakdown, raw backtest results table |
+| **Data Quality** | Latest pipeline run status, pass/warn/fail breakdown by stage, full validation check log, run history |
+| **AI Copilot** | Natural-language interface (see below) |
+
+Every page was smoke-tested by direct script execution (catching real Python exceptions, not just checking the server boots) in addition to launching the full multi-page app and confirming all 7 pages register and the server serves HTTP 200.
+
+### AI Analytics Copilot (`ai/`)
+
+A grounded tool-calling copilot (Anthropic Messages API) -- explicitly **not** a generic chatbot. The system prompt forbids citing any number not returned by a tool call in the same conversation.
+
+**Tools available to the model:**
+- `get_store_forecast`, `get_store_history` -- real stored/historical data
+- `get_store_recommendation` -- runs the live Monte Carlo optimizer
+- `run_what_if_scenario` -- runs the live scenario engine (presets or custom parameters)
+- `get_model_performance_summary`, `get_stockout_risk_ranking`, `get_data_quality_summary` -- real aggregated results
+- `run_sql_query` -- read-only SQL for anything the other tools don't cover
+
+**Safeguards implemented (`ai/sql_safety.py`, `ai/sql_executor.py`):**
+- Single-statement only (rejects `; DROP TABLE ...` injection attempts)
+- SELECT/WITH-only (every DML/DDL/DCL keyword explicitly blocked: INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, GRANT, CREATE, COPY, SET, and more)
+- Table allow-list (only the platform's own 16 analytical tables; `pg_catalog`/system tables rejected)
+- CTE-aware (correctly distinguishes a query's own `WITH x AS (...)` aliases from external table references, so legitimate CTE queries aren't false-positived)
+- Dangerous function-call blacklist (`pg_sleep`, `set_config`, `dblink`, `pg_read_file`, etc.)
+- Auto-appended and capped row LIMIT (max 500 rows per query)
+- All DB errors caught and returned as a clean message, never a raw stack trace
+
+**Example real interaction** (structure, not fabricated -- requires your own `ANTHROPIC_API_KEY` to run live):
+> **Q: "Why was XGBoost selected as the forecasting model?"**
+> → calls `get_model_performance_summary` → real result: XGBoost avg WMAPE 9.90% vs Random Forest 12.82%, SARIMA 17.66%, Holt-Winters 20.48% → copilot answers citing these exact figures.
+
+### Testing
+
+54 new tests added (185 total; 184 passing + 1 correctly-skipped edge case):
+- **SQL safety** (19 tests): every disallowed keyword individually verified rejected, CTE queries correctly accepted, injection attempts (`; DROP TABLE`) rejected, dangerous function calls rejected, row-limit capping verified
+- **SQL executor** (5 tests): valid queries execute, write attempts rejected before reaching the DB, malformed SQL caught gracefully
+- **AI tool functions** (12 tests): every grounded tool verified against live data (correct sort order, probabilistic band ordering, error handling for unknown stores/presets/metrics)
+- **Copilot orchestration** (9 tests): tool-dispatch routing, exception handling, and the full multi-round tool-calling loop verified with a **mocked Anthropic client** (no API key or network needed to test the orchestration logic itself) -- including a max-rounds safety stop test
+- **App data loaders** (9 tests): shape/sort-order correctness of every cached data function the UI depends on
+
+```
+184 passed, 1 skipped in ~15s
+```
+
+### Running it yourself
+
+```bash
+# Add your key to .env: ANTHROPIC_API_KEY=sk-ant-...
+streamlit run app/ui/Home.py
+```
+Or via Docker: `docker-compose up --build app` (after `postgres` and the Phase 1-3 pipelines have run).
+
+The app works fully **without** an API key -- only the AI Copilot page requires one; every other page is powered entirely by the platform's own database and engines.
+
+```bash
+pytest
+```
+
+---
+
 ## Roadmap
 
-- **Phase 4** — Streamlit application + AI analytics copilot, grounded in real pipeline/model/optimization output.
-- **Phase 5** — Tests, Docker hardening, deployment docs, final polish.
+- **Phase 5** — Final integration testing, deployment polish, architecture/DB diagrams, final cleanup.

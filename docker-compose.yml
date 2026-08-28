@@ -37,23 +37,25 @@ services:
       - ./logs:/app/logs
     command: ["python", "-m", "scripts.run_phase1_pipeline"]
 
-  # app:
-  #   build: .
-  #   container_name: supplysense_app
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   environment:
-  #     DB_HOST: postgres
-  #     DB_PORT: 5432
-  #     DB_NAME: ${DB_NAME:-supplysense}
-  #     DB_USER: ${DB_USER:-supplysense}
-  #     DB_PASSWORD: ${DB_PASSWORD:-supplysense_dev_pw}
-  #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-  #   ports:
-  #     - "8501:8501"
-  #   command: ["streamlit", "run", "app/ui/Home.py", "--server.port=8501", "--server.address=0.0.0.0"]
-  #   # Enabled in Phase 4 once the Streamlit app exists.
+  app:
+    build: .
+    container_name: supplysense_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-supplysense}
+      DB_USER: ${DB_USER:-supplysense}
+      DB_PASSWORD: ${DB_PASSWORD:-supplysense_dev_pw}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+    command: ["streamlit", "run", "app/ui/Home.py", "--server.port=8501", "--server.address=0.0.0.0"]
 
 volumes:
   supplysense_pgdata:

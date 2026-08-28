@@ -25,6 +25,7 @@ uvicorn>=0.29
 
 # --- AI Copilot (Phase 4) ---
 anthropic>=0.25
+sqlparse>=0.5
 
 # --- Testing ---
 pytest>=8.0
