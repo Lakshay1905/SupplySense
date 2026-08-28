@@ -1,0 +1,117 @@
+{
+  "region_id": 7,
+  "n_stores": 15,
+  "unconstrained_procurement_need": 131464.8928460342,
+  "constrained_budget": 78878.93570762052,
+  "status": "Optimal",
+  "total_cost": 161466.93557409832,
+  "total_procurement_spend": 78875.8471958248,
+  "budget_utilization_pct": 99.99608449103931,
+  "allocations": [
+    {
+      "store_id": 86,
+      "order_qty": 0.0,
+      "expected_total_cost": 3.9485149172579854,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0
+    },
+    {
+      "store_id": 126,
+      "order_qty": 0.0,
+      "expected_total_cost": 7.640628793430126,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0
+    },
+    {
+      "store_id": 152,
+      "order_qty": 0.0,
+      "expected_total_cost": 9.11642428899035,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0
+    },
+    {
+      "store_id": 161,
+      "order_qty": 480.0,
+      "expected_total_cost": 13715.859451311338,
+      "procurement_cost": 2745.2660977428313,
+      "stockout_probability": 1.0
+    },
+    {
+      "store_id": 216,
+      "order_qty": 0.0,
+      "expected_total_cost": 14384.623650390362,
+      "procurement_cost": 0.0,
+      "stockout_probability": 1.0
+    },
+    {
+      "store_id": 335,
+      "order_qty": 0.0,
+      "expected_total_cost": 1496.2489594030237,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.7186
+    },
+    {
+      "store_id": 380,
+      "order_qty": 0.0,
+      "expected_total_cost": 64.24761774480163,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0674
+    },
+    {
+      "store_id": 508,
+      "order_qty": 0.0,
+      "expected_total_cost": 10207.854853967294,
+      "procurement_cost": 0.0,
+      "stockout_probability": 1.0
+    },
+    {
+      "store_id": 567,
+      "order_qty": 0.0,
+      "expected_total_cost": 4.323998306739683,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0
+    },
+    {
+      "store_id": 640,
+      "order_qty": 0.0,
+      "expected_total_cost": 3.654089027762722,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0
+    },
+    {
+      "store_id": 733,
+      "order_qty": 0.0,
+      "expected_total_cost": 5.090963628427436,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.0
+    },
+    {
+      "store_id": 769,
+      "order_qty": 27810.0,
+      "expected_total_cost": 79478.17686665274,
+      "procurement_cost": 63756.33389210655,
+      "stockout_probability": 1.0
+    },
+    {
+      "store_id": 984,
+      "order_qty": 0.0,
+      "expected_total_cost": 12456.42093222529,
+      "procurement_cost": 0.0,
+      "stockout_probability": 1.0
+    },
+    {
+      "store_id": 992,
+      "order_qty": 0.0,
+      "expected_total_cost": 2435.1405306237416,
+      "procurement_cost": 0.0,
+      "stockout_probability": 0.875
+    },
+    {
+      "store_id": 1026,
+      "order_qty": 2400.0,
+      "expected_total_cost": 27194.588092817132,
+      "procurement_cost": 12374.247205975418,
+      "stockout_probability": 1.0
+    }
+  ]
+}

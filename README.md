@@ -259,8 +259,79 @@ pytest
 
 ---
 
+## Phase 3 — Optimization, Simulation & Decision Engine (complete)
+
+This is SupplySense's core differentiator: **not** `order_qty = forecast * safety_factor`, but a genuine constrained-optimization + Monte Carlo simulation pipeline that turns probabilistic forecasts into inventory decisions.
+
+### Handling a real data limitation honestly
+
+Rossmann's `Sales` field is store **revenue**, not a unit count -- there is no SKU-level quantity data anywhere in the source. Since MOQ, order multiples, and warehouse capacity are naturally unit-based, we convert forecasted revenue into unit-equivalents using each store's own **historical average revenue-per-customer-transaction** (`sales_per_customer`, computed from real data in Phase 1) as a data-grounded proxy unit price. Margin rate, holding-cost rate, and stockout-cost multiplier are genuine business *parameters* no sales-history dataset would ever contain -- they're documented, configurable assumptions in `config/settings.py: BUSINESS_DEFAULTS`, not fabricated data. Supplier lead times and starting inventory are similarly seeded as clearly-labeled synthetic operational state (`optimization/seed_operational_data.py`, fixed random seed for reproducibility) -- no public retail dataset ships with a supplier master or inventory feed, and every real deployment configures these directly rather than deriving them from sales history.
+
+### Monte Carlo simulation engine (`simulation/monte_carlo.py`)
+
+For a store's lead-time-plus-review-period horizon, each day's demand is sampled from a Normal distribution fit to that day's own P10/P50/P90 forecast band, summed across the horizon, and repeated 5,000 times. For every candidate order quantity this produces real simulated:
+
+- stockout probability
+- achieved service level
+- expected holding cost
+- expected stockout cost
+- expected total cost
+
+Example (Store 710, real output, abbreviated):
+
+| Order Qty | Stockout Risk | Expected Cost |
+|---|---|---|
+| 0 | 100.0% | €31,398 |
+| 1,500 | 100.0% | €27,340 |
+| 2,850 | 73.6% | €24,040 *(pure cost minimum)* |
+| 3,340 | 4.7% | €26,158 *(chosen — meets 95% target)* |
+| 3,800 | 0.02% | €29,708 |
+
+This U-shaped curve (see `reports/optimization/cost_curve_store710.png`) is exactly the newsvendor-style tradeoff a real inventory system must navigate: the cost-minimizing quantity (2,850) actually accepts high stockout risk here because procurement cost dominates the objective, which is why the optimizer treats the target service level as a real constraint (see below) rather than pure cost-minimization -- a gap I found and fixed while testing (see Testing section).
+
+### Per-store constrained optimizer (`optimization/inventory_optimizer.py`)
+
+Selection logic: among all MOQ/budget/capacity-feasible candidates, **prefer the cheapest one that also meets the target service level**; only fall back to pure cost-minimization if no feasible candidate can reach the target (explicitly flagged via `service_level_achievable_under_constraints` so the business always sees when a target isn't achievable under current constraints, rather than the optimizer silently choosing a cheaper, riskier quantity).
+
+Constraints enforced: MOQ, order multiple, warehouse capacity (headroom-aware), procurement budget, target service level. Every recommendation returns explicit **drivers** (demand change %, inventory status, lead time, budget/capacity status, achieved risk) -- matching the product spec's example output format.
+
+### Portfolio-level allocation (`optimization/portfolio_optimizer.py`)
+
+A genuine Mixed-Integer Program (PuLP, CBC solver) for the realistic case where budget/capacity is shared across many stores, not per-store. Formulated as multiple-choice knapsack: each store offers a small set of candidate quantities (from its own Monte Carlo cost curve); the solver picks exactly one candidate per store to minimize total portfolio cost subject to a shared budget and/or capacity constraint.
+
+Real example run (region 7, 15 stores, budget capped at 60% of unconstrained need): solved to **Optimal** status, **100% budget utilization**, with the solver making genuine cost-minimizing tradeoffs across stores (e.g. some stores received zero allocation because their marginal cost-per-euro was worse than others') -- not a greedy or proportional split.
+
+### Scenario / what-if engine (`scenarios/scenario_engine.py`)
+
+Re-runs the *same* optimizer with modified assumptions rather than applying a multiplier to the baseline output. Seven preset scenarios (demand ±20%/-15%, lead time 7→14 days, budget -15%/-20%, capacity +25%, a 2-week +30% promotion) plus arbitrary custom scenarios via `ScenarioDefinition`. Real example (Store 710, +20% demand): recommended order rose **33.5%** (more than proportionally, since fixed starting inventory absorbs a smaller relative share of higher demand) while service level held at ~95%.
+
+### Testing
+
+43 new tests added (131 total; 130 passing + 1 correctly-skipped edge case):
+- Cost model math (margin/holding/stockout cost derivation, zero/negative-price guards)
+- Monte Carlo correctness (reproducibility with fixed seed, monotonic stockout-risk-vs-quantity, monotonic holding-cost-vs-quantity, mean convergence to P50)
+- Inventory optimizer (MOQ/budget/capacity constraint enforcement, correct zero-order recommendation when inventory suffices, unachievable-service-level flagging) -- **caught a real bug**: the optimizer was silently minimizing pure cost and could recommend a quantity that badly missed the target service level (73.6% stockout risk against a 95% service-level target) whenever stockout cost was cheap relative to procurement cost; fixed by adding service-level-aware candidate selection (see above)
+- Portfolio MILP (exactly-one-candidate-per-store, budget/capacity constraint satisfaction, correct unconstrained optimum, large-candidate-set downsampling)
+- Recommendation + scenario engine integration tests against the live, fully-populated database
+
+```
+130 passed, 1 skipped in ~12s
+```
+
+### Running it yourself
+
+```bash
+python -m scripts.run_phase3_pipeline
+```
+Seeds suppliers/inventory, computes baseline recommendations for a stratified 120-store sample, runs a portfolio allocation example, and runs all preset scenarios for 8 example stores -- writing to `optimization_results`, `scenarios`, and `reports/optimization/`.
+
+```bash
+pytest
+```
+
+---
+
 ## Roadmap
 
-- **Phase 3** — Inventory optimization, Monte Carlo simulation, scenario/what-if engine.
 - **Phase 4** — Streamlit application + AI analytics copilot, grounded in real pipeline/model/optimization output.
 - **Phase 5** — Tests, Docker hardening, deployment docs, final polish.

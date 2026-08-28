@@ -140,3 +140,48 @@ def test_forecasts_cover_all_stores_with_full_horizon():
     # every forecasted store should have exactly one row per horizon day
     assert df["n"].nunique() == 1  # all stores have the same number of forecast days
     assert df["n"].iloc[0] > 0
+
+
+def _suppliers_loaded() -> bool:
+    try:
+        return table_row_count("dim_supplier") > 0
+    except Exception:
+        return False
+
+
+def _optimization_results_loaded() -> bool:
+    try:
+        return table_row_count("optimization_results") > 0
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _suppliers_loaded(), reason="dim_supplier not yet populated")
+def test_dim_supplier_has_positive_lead_times():
+    df = read_sql("SELECT * FROM dim_supplier WHERE lead_time_days <= 0")
+    assert len(df) == 0
+
+
+@pytest.mark.skipif(not _suppliers_loaded(), reason="dim_supplier not yet populated")
+def test_dim_supplier_one_per_store():
+    n_suppliers = table_row_count("dim_supplier")
+    n_stores = table_row_count("dim_store")
+    assert n_suppliers == n_stores
+
+
+@pytest.mark.skipif(not _optimization_results_loaded(), reason="optimization_results not yet populated")
+def test_optimization_results_have_no_negative_order_quantities():
+    df = read_sql("SELECT * FROM optimization_results WHERE recommended_order_qty < 0")
+    assert len(df) == 0
+
+
+@pytest.mark.skipif(not _optimization_results_loaded(), reason="optimization_results not yet populated")
+def test_optimization_results_stockout_probability_in_valid_range():
+    df = read_sql("SELECT * FROM optimization_results WHERE stockout_probability < 0 OR stockout_probability > 1")
+    assert len(df) == 0
+
+
+@pytest.mark.skipif(not _optimization_results_loaded(), reason="optimization_results not yet populated")
+def test_optimization_results_have_drivers_json():
+    df = read_sql("SELECT * FROM optimization_results WHERE drivers_json IS NULL")
+    assert len(df) == 0
