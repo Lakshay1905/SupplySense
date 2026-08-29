@@ -177,6 +177,9 @@ CREATE TABLE IF NOT EXISTS model_evaluations (
     created_at          TIMESTAMP DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_model_evaluations_store ON model_evaluations(store_id);
+CREATE INDEX IF NOT EXISTS idx_model_evaluations_model ON model_evaluations(model_name);
+
 CREATE TABLE IF NOT EXISTS forecasts (
     forecast_id         BIGSERIAL PRIMARY KEY,
     store_id            INTEGER NOT NULL,
@@ -190,6 +193,9 @@ CREATE TABLE IF NOT EXISTS forecasts (
     UNIQUE (store_id, forecast_date, target_date, model_name)
 );
 
+CREATE INDEX IF NOT EXISTS idx_forecasts_store ON forecasts(store_id);
+CREATE INDEX IF NOT EXISTS idx_forecasts_store_target ON forecasts(store_id, target_date);
+
 CREATE TABLE IF NOT EXISTS optimization_results (
     result_id           BIGSERIAL PRIMARY KEY,
     store_id            INTEGER NOT NULL,
@@ -201,6 +207,9 @@ CREATE TABLE IF NOT EXISTS optimization_results (
     drivers_json          JSONB,
     created_at            TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_optimization_results_store ON optimization_results(store_id);
+CREATE INDEX IF NOT EXISTS idx_optimization_results_stockout ON optimization_results(stockout_probability);
 
 CREATE TABLE IF NOT EXISTS scenarios (
     scenario_id          BIGSERIAL PRIMARY KEY,

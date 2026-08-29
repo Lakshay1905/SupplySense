@@ -28,7 +28,7 @@ from forecasting.ml.ml_models import prepare_ml_features, train_xgboost, FEATURE
 from forecasting.probabilistic import compute_residual_quantiles, apply_probabilistic_bands
 from forecasting.evaluation.backtesting import generate_rolling_folds
 from analytics.features.feature_engineering import (
-    add_calendar_features, add_lag_and_rolling_features, add_days_since_competition,
+    add_calendar_features, add_lag_and_rolling_features,
 )
 
 logger = get_logger(__name__)

@@ -23,7 +23,7 @@ from forecasting.baselines.baseline_models import (
     naive_forecast, seasonal_naive_forecast, moving_average_forecast,
 )
 from forecasting.statistical.statistical_models import holt_winters_forecast, sarima_forecast
-from forecasting.ml.ml_models import prepare_ml_features, train_random_forest, train_xgboost, FEATURE_COLUMNS
+from forecasting.ml.ml_models import prepare_ml_features, train_random_forest, train_xgboost
 from forecasting.evaluation.backtesting import generate_rolling_folds
 from forecasting.evaluation.metrics import compute_all_metrics
 

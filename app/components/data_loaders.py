@@ -11,7 +11,7 @@ import json
 import pandas as pd
 import streamlit as st
 
-from database.connection import read_sql, get_engine
+from database.connection import read_sql
 
 
 @st.cache_data(ttl=300)

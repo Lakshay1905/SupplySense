@@ -12,7 +12,6 @@ import streamlit as st
 import pandas as pd
 
 from app.components.data_loaders import load_data_quality_log, load_pipeline_runs
-from database.connection import read_sql
 
 st.set_page_config(page_title="Data Quality | SupplySense", page_icon="🔍", layout="wide")
 st.title("🔍 Data Quality")

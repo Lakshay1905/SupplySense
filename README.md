@@ -2,14 +2,179 @@
 
 SupplySense turns raw retail sales history into inventory **decisions**:
 what to order, how much safety stock to hold, and what the stockout /
-cost tradeoffs look like under different assumptions. It is being built
-in five phases; this document currently covers **Phase 1: Data
-Foundation**.
+cost tradeoffs look like under different assumptions. It was built in
+five phases and is now feature-complete end-to-end (Phases 1-5).
 
 ```
 Raw Data → Ingestion → Validation → Cleaning → Transformation →
-Feature Engineering → PostgreSQL → Analytics / ML / Optimization
+Feature Engineering → PostgreSQL → Forecasting → Optimization →
+Simulation → Scenario Analysis → AI Copilot
 ```
+
+---
+
+## Quick Start (full setup, all phases)
+
+```bash
+# 1. PostgreSQL (native or Docker)
+docker-compose up -d postgres
+# -- or natively: create a 'supplysense' DB + user (see Phase 1 section below)
+
+# 2. Python environment
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Configure
+cp .env.example .env
+# Edit .env: DB credentials, and ANTHROPIC_API_KEY if you want the AI Copilot
+
+# 4. Get the data
+bash scripts/download_data.sh
+
+# 5. Run everything (Phases 1-3: data, forecasting, optimization) + tests
+bash scripts/run_all_pipelines.sh
+
+# 6. Launch the app
+streamlit run app/ui/Home.py
+```
+`scripts/run_all_pipelines.sh` runs the complete sequence (schema init → Phase 1 → Phase 2 benchmark → Phase 2 full-scale forecasting in 8 batches → Phase 3 → test suite) in one command; see the phase-by-phase sections below if you'd rather run/understand each step individually. Total runtime is roughly 10-20 minutes, dominated by generating 42-day forecasts for all 1,115 stores.
+
+### Troubleshooting
+
+- **`psql: error: connection to server on socket ... failed`**: your Postgres isn't reachable via the default local socket -- usually because it's running in Docker (`docker-compose up -d postgres`). Connect over TCP instead: `psql -h localhost -p 5432 -U supplysense -d supplysense`.
+- **`psql: FATAL: password authentication failed`** even with the right password: don't fight `psql` credentials manually -- use `python -m scripts.create_readonly_role` instead (see Phase 5), which reuses the same DB connection your already-working app/tests use from `.env`. If that then fails with `permission denied to create role`, your DB user lacks `CREATEROLE`; see the Phase 5 read-only-role section for the fix.
+- **`186 passed, 5 skipped` instead of `199 passed, 1 skipped`**: the 4 extra skips are `tests/test_readonly_role.py` auto-skipping because you haven't run `database/create_readonly_role.sql` yet -- this is expected, not a bug; run that script (see Phase 5) to enable those tests.
+- **AI Copilot page says no API key configured**: set `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` in `.env` (see Phase 4/5 AI Copilot sections for provider details).
+
+### Sample workflow (the platform's intended end-to-end use)
+
+1. Open the app (`streamlit run app/ui/Home.py`) → **Home** shows portfolio-wide KPIs and exception alerts (which stores are high-risk or budget-constrained right now).
+2. Go to **Forecast Explorer**, pick a store → see its historical demand, weekly seasonality, and P10/P50/P90 forecast.
+3. Go to **Inventory Recommendations** for the same store → see the live-computed recommended order quantity, full cost breakdown, and plain-language decision drivers.
+4. Go to **Scenario Simulator** → apply "Demand +20%" → compare the new recommendation to baseline side-by-side.
+5. Go to **Optimization** → select a region → run the portfolio allocator to see how a shared budget should be split across that region's stores.
+6. Go to **AI Copilot** → ask *"Why did store 710's recommended order increase?"* → the copilot calls the same live engines and cites the real decision drivers back to you.
+
+### Architecture
+
+```mermaid
+flowchart TD
+    A[Rossmann CSVs<br/>train.csv / store.csv / store_states.csv] --> B[Ingestion<br/>pipelines/ingestion]
+    B --> C[Validation<br/>pipelines/validation]
+    C --> D[Cleaning + Transformation<br/>pipelines/transformation]
+    D --> E[Feature Engineering<br/>analytics/features]
+    E --> F[(PostgreSQL<br/>star schema)]
+
+    F --> G[Forecasting Engine<br/>forecasting/*<br/>baselines, statistical, XGBoost]
+    G -->|P10/P50/P90| F
+
+    F --> H[Optimization Engine<br/>optimization/*<br/>Monte Carlo + constrained optimizer]
+    H --> F
+
+    F --> I[Portfolio MILP<br/>optimization/portfolio_optimizer.py<br/>PuLP/CBC]
+    F --> J[Scenario Engine<br/>scenarios/scenario_engine.py]
+
+    F --> K[Streamlit App<br/>app/ui/*]
+    H --> K
+    I --> K
+    J --> K
+
+    F --> L[AI Copilot<br/>ai/*]
+    H --> L
+    J --> L
+    L -->|tool calls| M[Anthropic API]
+    K --> N((User))
+    L --> N
+```
+
+### Database schema (star schema)
+
+```mermaid
+erDiagram
+    dim_store ||--o{ fact_sales : "has"
+    dim_date ||--o{ fact_sales : "on"
+    dim_store ||--o{ fact_sales_features : "has"
+    dim_region ||--o{ dim_store : "located in"
+    dim_store ||--o{ forecasts : "forecasted for"
+    dim_store ||--o{ model_evaluations : "evaluated for"
+    dim_store ||--o{ optimization_results : "recommended for"
+    dim_store ||--o{ inventory_snapshot : "tracked for"
+    dim_supplier ||--o{ orders : "fulfills"
+    dim_store ||--o{ orders : "ordered by"
+    dim_store ||--o{ promotions : "runs"
+
+    dim_store {
+        int store_id PK
+        varchar store_type "category proxy"
+        varchar assortment
+        int region_id FK
+    }
+    dim_region {
+        int region_id PK
+        varchar state_code
+        varchar state_name
+    }
+    dim_date {
+        date date_id PK
+        int day_of_week
+        bool is_weekend
+    }
+    fact_sales {
+        bigint sales_id PK
+        date date_id FK
+        int store_id FK
+        numeric sales
+        bool is_open
+        bool is_promo
+    }
+    fact_sales_features {
+        bigint feature_id PK
+        date date_id
+        int store_id
+        numeric lag_1
+        numeric rolling_mean_7
+        varchar demand_segment
+    }
+    forecasts {
+        bigint forecast_id PK
+        int store_id FK
+        date target_date
+        numeric p10
+        numeric p50
+        numeric p90
+    }
+    model_evaluations {
+        bigint evaluation_id PK
+        int store_id FK
+        varchar model_name
+        numeric wmape
+    }
+    dim_supplier {
+        int supplier_id PK
+        numeric lead_time_days
+        int moq_units
+    }
+    inventory_snapshot {
+        bigint snapshot_id PK
+        int store_id FK
+        numeric on_hand_units
+    }
+    optimization_results {
+        bigint result_id PK
+        int store_id FK
+        numeric recommended_order_qty
+        numeric stockout_probability
+        jsonb drivers_json
+    }
+    scenarios {
+        bigint scenario_id PK
+        varchar scenario_name
+        jsonb parameters_json
+        jsonb result_json
+    }
+```
+
+`dim_product` exists in the schema for architectural completeness but is intentionally unpopulated -- see the Phase 1 section for why.
 
 ---
 
@@ -352,7 +517,9 @@ Every page was smoke-tested by direct script execution (catching real Python exc
 
 ### AI Analytics Copilot (`ai/`)
 
-A grounded tool-calling copilot (Anthropic Messages API) -- explicitly **not** a generic chatbot. The system prompt forbids citing any number not returned by a tool call in the same conversation.
+A grounded tool-calling copilot -- explicitly **not** a generic chatbot. The system prompt forbids citing any number not returned by a tool call in the same conversation. **Supports either Anthropic (Claude) or Google Gemini** as the backing LLM, chosen automatically based on which API key is configured -- both providers share the exact same tool definitions, dispatch logic, and system prompt, so answers are grounded identically either way.
+
+**Choosing a provider:** set `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` (or both) in `.env`. If both are set, Anthropic is used by default; force a specific provider with `LLM_PROVIDER=gemini` (or `anthropic`). Model names are configurable via `ANTHROPIC_MODEL` / `GEMINI_MODEL` env vars, defaulting to `claude-sonnet-5` / `gemini-2.5-flash`.
 
 **Tools available to the model:**
 - `get_store_forecast`, `get_store_history` -- real stored/historical data
@@ -369,22 +536,25 @@ A grounded tool-calling copilot (Anthropic Messages API) -- explicitly **not** a
 - Dangerous function-call blacklist (`pg_sleep`, `set_config`, `dblink`, `pg_read_file`, etc.)
 - Auto-appended and capped row LIMIT (max 500 rows per query)
 - All DB errors caught and returned as a clean message, never a raw stack trace
+- See also `database/create_readonly_role.sql` (Phase 5) for database-level defense-in-depth
 
-**Example real interaction** (structure, not fabricated -- requires your own `ANTHROPIC_API_KEY` to run live):
+**Example real interaction** (structure, not fabricated -- requires your own API key to run live):
 > **Q: "Why was XGBoost selected as the forecasting model?"**
 > → calls `get_model_performance_summary` → real result: XGBoost avg WMAPE 9.90% vs Random Forest 12.82%, SARIMA 17.66%, Holt-Winters 20.48% → copilot answers citing these exact figures.
 
+**Provider implementation note:** the Anthropic and Gemini SDKs use different message/tool-call formats (Anthropic's `messages.create(tools=..., messages=...)` with `tool_use`/`tool_result` content blocks vs. Gemini's `models.generate_content(contents=..., config=GenerateContentConfig(tools=...))` with `function_call`/`function_response` parts), so `ai/copilot.py` has one function-calling loop per provider (`_ask_anthropic`, `_ask_gemini`) behind a single `ask_copilot()` entry point. Both loops call the exact same `_dispatch_tool_call()` and share `TOOL_DEFINITIONS` unmodified -- Gemini's `FunctionDeclaration.parameters` accepts the same JSON-schema-style dict Anthropic's `input_schema` uses, so no tool schema duplication was needed. This was verified against the real `google-genai` SDK (not just mocked tests) to confirm the shared schema actually constructs valid `Tool`/`FunctionDeclaration`/`GenerateContentConfig` objects.
+
 ### Testing
 
-54 new tests added (185 total; 184 passing + 1 correctly-skipped edge case):
+Copilot orchestration and safety are covered by dedicated tests (both provider paths):
 - **SQL safety** (19 tests): every disallowed keyword individually verified rejected, CTE queries correctly accepted, injection attempts (`; DROP TABLE`) rejected, dangerous function calls rejected, row-limit capping verified
 - **SQL executor** (5 tests): valid queries execute, write attempts rejected before reaching the DB, malformed SQL caught gracefully
 - **AI tool functions** (12 tests): every grounded tool verified against live data (correct sort order, probabilistic band ordering, error handling for unknown stores/presets/metrics)
-- **Copilot orchestration** (9 tests): tool-dispatch routing, exception handling, and the full multi-round tool-calling loop verified with a **mocked Anthropic client** (no API key or network needed to test the orchestration logic itself) -- including a max-rounds safety stop test
+- **Copilot orchestration** (18 tests): provider routing (Anthropic vs Gemini vs unconfigured/unsupported), tool-dispatch, exception handling, and the full multi-round tool-calling loop verified with **mocked clients for both Anthropic and Gemini** (no API key or network needed) -- including max-rounds safety-stop tests for each provider, and a schema-parity test guarding against the two paths silently offering different tools. The tool-schema conversion was additionally checked against the real `google-genai` SDK (not just mocks) to confirm genuine compatibility.
 - **App data loaders** (9 tests): shape/sort-order correctness of every cached data function the UI depends on
 
 ```
-184 passed, 1 skipped in ~15s
+184 passed, 1 skipped in ~15s (at time of writing; see Phase 5 for the current total after the Gemini provider addition)
 ```
 
 ### Running it yourself
@@ -403,6 +573,80 @@ pytest
 
 ---
 
-## Roadmap
+## Phase 5 — Finalization & Deployment (complete)
 
-- **Phase 5** — Final integration testing, deployment polish, architecture/DB diagrams, final cleanup.
+### Integration testing
+
+Added an explicit end-to-end journey test (`tests/test_end_to_end_journey.py`) that exercises the platform in the same sequence a real user would: view portfolio health → inspect a store's history and forecast → check model performance → get a recommendation → run a scenario → inspect a portfolio allocation → verify the AI copilot's tool layer resolves to the same live data as everything else. This catches a class of bug unit tests miss: each phase's modules working correctly in isolation but silently diverging when composed (e.g. the UI, the engine, and the copilot reading from three different code paths that could disagree).
+
+### Bugs found and fixed during final integration
+
+Full-suite testing before this phase already caught two real bugs (documented in Phases 1 and 3). One more surfaced during Phase 5 hardening:
+
+- **`database/schema.sql` corruption**: an earlier edit (adding indexes) accidentally overwrote the `CREATE TABLE IF NOT EXISTS optimization_results (` line instead of inserting alongside it, silently truncating the DDL file. This wouldn't have been caught by the existing test suite, since tests ran against an already-populated database from before the edit -- only a full `--reset` rebuild surfaced it. **Fixed** by restoring the table definition and re-validating with a complete from-scratch rebuild (schema → Phase 1 → Phase 2 → Phase 3, in full) plus a full test-suite pass (190 passed) against the rebuilt database. This is why Phase 5 includes a genuine clean-rebuild verification rather than trusting the already-running database.
+
+### Code cleanup
+
+Ran `pyflakes` across the entire codebase (excluding tests) and removed every finding: 12 unused imports and one genuinely dead variable (`optimization/seed_operational_data.py` computed a `store_to_supplier` mapping that was never used, since the actual lookup in `recommendation_engine.py` uses a name-based match instead -- removed rather than wiring in unnecessary complexity). Zero findings remain.
+
+### Security hardening: read-only database role
+
+Added `database/create_readonly_role.sql`, provisioning a `supplysense_readonly` PostgreSQL role with `SELECT`-only grants (including on future tables via `ALTER DEFAULT PRIVILEGES`), as defense-in-depth beneath the AI Copilot's application-level SQL safety checks (Phase 4). Verified live against the real database: the role can query `fact_sales` successfully but a `DELETE` and a `DROP TABLE` both fail with `permission denied` / `must be owner of table`. In production, point the copilot's DB connection at this role via its own `DB_USER`/`DB_PASSWORD` environment variables rather than the main application user.
+
+**Running it:** the script must be run by a superuser or a role with `CREATEROLE` (it creates a new role, which an ordinary application user typically can't do). The easiest way is via the app's own already-working DB connection, which sidesteps manually re-entering credentials in a separate `psql` session:
+
+```bash
+python -m scripts.create_readonly_role
+```
+
+This works out of the box if you're using `docker-compose up -d postgres` (the Docker Postgres image makes `POSTGRES_USER` a superuser automatically). If you set up Postgres natively and created a non-superuser app user, either grant it `CREATEROLE` first (`ALTER USER supplysense CREATEROLE;`, run as the `postgres` superuser) or run the script directly as the superuser instead:
+```bash
+psql -U postgres -d supplysense -f database/create_readonly_role.sql
+```
+
+### Performance
+
+Added indexes on `forecasts(store_id)`, `forecasts(store_id, target_date)`, `model_evaluations(store_id)`, `model_evaluations(model_name)`, `optimization_results(store_id)`, and `optimization_results(stockout_probability)` -- the exact columns the Streamlit app and AI Copilot filter/sort/join on most frequently.
+
+### Deployment
+
+- `docker-compose.yml`: three services (`postgres`, `pipeline`, `app`), the last exposing Streamlit on port 8501 with `ANTHROPIC_API_KEY` passed through from the host environment
+- `.dockerignore` added to keep build context small (excludes `.git`, caches, logs, raw CSVs, `reports/`)
+- `scripts/run_all_pipelines.sh`: one-command full pipeline + test run for a fresh environment
+- Architecture and database ER diagrams (Mermaid, rendered natively by GitHub) added above
+
+**Honesty note on Docker verification:** the sandbox this project was built in does not have Docker available, so `Dockerfile`/`docker-compose.yml` were reviewed carefully by hand (dependency list, paths, environment variable wiring, healthcheck logic) but not build-tested end-to-end. Please run `docker-compose up --build` yourself and report back if anything doesn't come up cleanly -- everything else in this project (all application code, the database schema, and all 190 tests) has been executed and verified for real in the build environment.
+
+### Testing
+
+200 tests total (199 passing + 1 correctly-skipped edge case), up from 185 at the end of Phase 4:
+- 2 new end-to-end journey tests
+- 4 new read-only-role enforcement tests (real database permission checks, not mocked)
+- 9 net new AI Copilot tests (Gemini provider support added post-Phase-4: provider routing, and a full mocked Gemini tool-calling loop mirroring the existing Anthropic tests, plus a schema-parity guard test)
+- Full clean-rebuild verification: schema reset → Phase 1 → Phase 2 → Phase 3, from empty database to fully populated, confirming `database/schema.sql` is valid and the entire pipeline sequence is reproducible from scratch
+
+```
+199 passed, 1 skipped
+```
+
+### Multi-provider AI Copilot (Anthropic + Gemini)
+
+Added after initial Phase 4 delivery: the AI Copilot now supports **Google Gemini** as an alternative to Anthropic, since not everyone has an Anthropic API key. `ai/copilot.py` was refactored so `ask_copilot()` auto-detects the provider from whichever key is set (`ANTHROPIC_API_KEY` or `GEMINI_API_KEY`, overridable via `LLM_PROVIDER`), routing to `_ask_anthropic()` or `_ask_gemini()` -- both implementing the same tool-calling loop shape against their respective SDK's function-calling API, sharing the exact same `TOOL_DEFINITIONS`, `_dispatch_tool_call()`, and `SYSTEM_PROMPT`. The existing JSON-schema-style tool definitions needed no changes -- Gemini's `FunctionDeclaration.parameters` accepts the same shape Anthropic's `input_schema` uses. Verified against the real `google-genai` SDK (not just mocked tests) that the shared schema constructs valid `Tool`/`FunctionDeclaration`/`GenerateContentConfig`/`Content`/`Part` objects. See the Phase 4 AI Copilot section above for full details.
+
+### Final cleanup checklist
+
+- [x] All automated tests passing (199/200, 1 correctly skipped)
+- [x] No unused imports or dead code (verified with `pyflakes`, zero findings)
+- [x] No placeholder/mock data anywhere in the application layer
+- [x] Full pipeline reproducible from an empty database (verified by actually doing it)
+- [x] Read-only DB role for AI Copilot defense-in-depth (verified with real permission-denied tests)
+- [x] Architecture + database diagrams in README
+- [x] Docker Compose configuration for all services
+- [x] `.env.example`, `.gitignore`, `.dockerignore` all present and correct
+- [x] AI Copilot works with either Anthropic or Gemini (verified against both SDKs)
+
+---
+
+## Project Status
+
+All five phases are complete. SupplySense is a working, tested, portfolio-ready decision-analytics platform: real data engineering on a public dataset, genuine time-series forecasting with honest benchmarking, real constrained optimization (Monte Carlo simulation + MILP, not a heuristic formula), a scenario engine that re-runs real logic rather than faking deltas, a full interactive application, and a grounded, multi-provider AI copilot with defense-in-depth safety layers -- all backed by 199 passing automated tests.

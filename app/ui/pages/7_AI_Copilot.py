@@ -20,12 +20,15 @@ st.caption(
     "engines rather than answering from general knowledge."
 )
 
-if not settings.anthropic_api_key:
+if not settings.has_llm_key:
     st.warning(
-        "**ANTHROPIC_API_KEY is not set.** Add it to your `.env` file to enable the AI Copilot. "
-        "Everything else in SupplySense works without it -- this page alone requires an API key."
+        "**No LLM API key is configured.** Add `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` to your "
+        "`.env` file to enable the AI Copilot. Everything else in SupplySense works without it -- "
+        "this page alone requires an API key."
     )
     st.stop()
+
+st.caption(f"Currently using: **{settings.active_llm_provider}**")
 
 from ai.copilot import ask_copilot
 

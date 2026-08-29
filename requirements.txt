@@ -24,7 +24,9 @@ fastapi>=0.110
 uvicorn>=0.29
 
 # --- AI Copilot (Phase 4) ---
+# Install whichever provider(s) you plan to use.
 anthropic>=0.25
+google-genai>=0.3
 sqlparse>=0.5
 
 # --- Testing ---

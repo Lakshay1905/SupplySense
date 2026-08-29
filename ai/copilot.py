@@ -1,15 +1,21 @@
 """
 AI Analytics Copilot orchestration.
 
-Implements a standard tool-calling loop against the Anthropic Messages
-API: the model is given a fixed set of tools (read-only SQL + grounded
-data/engine functions from ai.tools), and a system prompt that forbids it
-from citing any number it didn't get from a tool call. We loop until the
-model stops requesting tools and returns a final text answer.
+Implements a standard tool-calling loop, supporting either the Anthropic
+Messages API or the Google Gemini API (google-genai SDK) as the backing
+LLM -- the provider is chosen automatically based on which API key is
+configured (or forced via LLM_PROVIDER), and both share the same tool
+definitions, dispatch logic, and system prompt so behavior is identical
+regardless of provider. The model is given a fixed set of tools
+(read-only SQL + grounded data/engine functions from ai.tools) and a
+system prompt that forbids it from citing any number it didn't get from
+a tool call. We loop until the model stops requesting tools and returns
+a final text answer.
 
-This module has no import-time dependency on a live API key so the rest
-of the app (and the test suite) can import it freely; the key is only
-required when `ask_copilot` is actually called.
+This module has no import-time dependency on a live API key or either
+provider's SDK, so the rest of the app (and the test suite) can import
+it freely; the provider SDK and key are only required when
+`ask_copilot` is actually called.
 """
 from __future__ import annotations
 
@@ -23,7 +29,8 @@ from ai import tools as ai_tools
 
 logger = get_logger(__name__)
 
-DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 MAX_TOOL_ROUNDS = 6
 
 SYSTEM_PROMPT = """You are the SupplySense AI Analytics Copilot, embedded in an inventory \
@@ -193,14 +200,41 @@ class CopilotResponse:
 def ask_copilot(user_message: str, conversation_history: list[dict] | None = None,
                  model: str | None = None) -> CopilotResponse:
     """Run one user turn through the tool-calling loop and return the
-    final grounded answer plus a trace of every tool call made (useful
-    for the UI to show "how the copilot got this answer")."""
+    final grounded answer plus a trace of every tool call made.
+
+    `conversation_history` is a provider-agnostic list of
+    {"role": "user"|"assistant", "content": "..."} dicts (plain text
+    turns only -- intermediate tool-call state is not persisted across
+    turns, matching how the Streamlit UI stores history). Each provider
+    implementation converts this into its own required format.
+
+    Dispatches to Anthropic or Gemini based on `settings.active_llm_provider`
+    (auto-detected from whichever API key is set, or forced via
+    LLM_PROVIDER). Both paths share TOOL_DEFINITIONS, TOOL_FUNCTIONS,
+    SYSTEM_PROMPT, and _dispatch_tool_call, so answers are grounded
+    identically regardless of which LLM is answering.
+    """
+    provider = settings.active_llm_provider
+    if provider is None:
+        raise RuntimeError(
+            "No LLM API key is configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY "
+            "in your .env file to enable the AI Copilot."
+        )
+    if provider == "anthropic":
+        return _ask_anthropic(user_message, conversation_history, model)
+    if provider == "gemini":
+        return _ask_gemini(user_message, conversation_history, model)
+    raise RuntimeError(f"Unsupported LLM_PROVIDER '{provider}'. Supported values: 'anthropic', 'gemini'.")
+
+
+def _ask_anthropic(user_message: str, conversation_history: list[dict] | None = None,
+                    model: str | None = None) -> CopilotResponse:
     try:
         import anthropic
     except ImportError as exc:
         raise RuntimeError(
-            "The 'anthropic' package is required for the AI Copilot. Install it with "
-            "`pip install anthropic`."
+            "The 'anthropic' package is required for the Anthropic-backed AI Copilot. "
+            "Install it with `pip install anthropic`."
         ) from exc
 
     if not settings.anthropic_api_key:
@@ -209,7 +243,7 @@ def ask_copilot(user_message: str, conversation_history: list[dict] | None = Non
         )
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    model = model or DEFAULT_MODEL
+    model = model or settings.anthropic_model or DEFAULT_ANTHROPIC_MODEL
 
     messages = list(conversation_history or [])
     messages.append({"role": "user", "content": user_message})
@@ -240,6 +274,78 @@ def ask_copilot(user_message: str, conversation_history: list[dict] | None = Non
                 "content": json.dumps(result, default=str),
             })
         messages.append({"role": "user", "content": tool_results_content})
+
+    return CopilotResponse(
+        answer="I made too many tool calls trying to answer this and stopped to avoid a loop. "
+               "Please try rephrasing your question.",
+        tool_calls=trace,
+    )
+
+
+def _ask_gemini(user_message: str, conversation_history: list[dict] | None = None,
+                 model: str | None = None) -> CopilotResponse:
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'google-genai' package is required for the Gemini-backed AI Copilot. "
+            "Install it with `pip install google-genai`."
+        ) from exc
+
+    if not settings.gemini_api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. Add it to your .env file to enable the AI Copilot."
+        )
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+    model_name = model or settings.gemini_model or DEFAULT_GEMINI_MODEL
+
+    # TOOL_DEFINITIONS is already JSON-schema-shaped (type/properties/required
+    # in lowercase), which the Gemini SDK's FunctionDeclaration.parameters
+    # accepts directly -- one tool schema, shared across both providers.
+    gemini_tools = [types.Tool(function_declarations=[
+        types.FunctionDeclaration(
+            name=t["name"], description=t["description"], parameters=t["input_schema"],
+        )
+        for t in TOOL_DEFINITIONS
+    ])]
+
+    contents: list = [
+        types.Content(
+            role=("model" if turn["role"] == "assistant" else "user"),
+            parts=[types.Part(text=turn["content"])],
+        )
+        for turn in (conversation_history or [])
+    ]
+    contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
+
+    trace: list[CopilotTurn] = []
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = client.models.generate_content(
+            model=model_name, contents=contents,
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, tools=gemini_tools),
+        )
+        candidate = response.candidates[0]
+        function_call_parts = [p for p in candidate.content.parts if getattr(p, "function_call", None)]
+
+        if not function_call_parts:
+            final_text = "".join(p.text for p in candidate.content.parts if getattr(p, "text", None))
+            return CopilotResponse(answer=final_text, tool_calls=trace)
+
+        contents.append(candidate.content)
+
+        response_parts = []
+        for part in function_call_parts:
+            fc = part.function_call
+            tool_input = dict(fc.args) if fc.args else {}
+            logger.info("Copilot calling tool: %s(%s)", fc.name, tool_input)
+            result = _dispatch_tool_call(fc.name, tool_input)
+            trace.append(CopilotTurn(role="tool_calls", tool_name=fc.name,
+                                      tool_input=tool_input, tool_result=result))
+            response_parts.append(types.Part.from_function_response(name=fc.name, response=result))
+        contents.append(types.Content(role="user", parts=response_parts))
 
     return CopilotResponse(
         answer="I made too many tool calls trying to answer this and stopped to avoid a loop. "

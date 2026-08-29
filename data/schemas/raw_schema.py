@@ -8,7 +8,7 @@ makes it easy to see -- and unit test -- exactly what "valid" means.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 

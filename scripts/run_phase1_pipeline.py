@@ -13,10 +13,9 @@ import uuid
 import sys
 from datetime import datetime
 
-import pandas as pd
 
 from config.logging_config import get_logger
-from database.connection import get_engine, write_dataframe, read_sql, bulk_copy_dataframe
+from database.connection import get_engine, write_dataframe, bulk_copy_dataframe
 from database.init_db import create_schema
 from pipelines.ingestion.load_raw_data import load_all
 from pipelines.validation.validators import (

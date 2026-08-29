@@ -25,7 +25,7 @@ import re
 
 import sqlparse
 from sqlparse.sql import Statement
-from sqlparse.tokens import Keyword, DML
+from sqlparse.tokens import Keyword
 
 from config.logging_config import get_logger
 

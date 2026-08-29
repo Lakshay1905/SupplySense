@@ -83,10 +83,6 @@ def run_seeding() -> None:
         conn.exec_driver_sql("TRUNCATE TABLE dim_supplier RESTART IDENTITY CASCADE")
     write_dataframe(suppliers, "dim_supplier", if_exists="append")
 
-    # Map store -> supplier_id via insertion order (supplier i corresponds to store_ids[i])
-    supplier_ids = read_sql("SELECT supplier_id FROM dim_supplier ORDER BY supplier_id")["supplier_id"].tolist()
-    store_to_supplier = dict(zip(store_ids, supplier_ids))
-
     # avg daily units per store, derived from real historical sales_per_customer & sales
     hist = read_sql("""
         SELECT store_id, AVG(sales) AS avg_sales, AVG(NULLIF(sales_per_customer,0)) AS avg_spc

@@ -14,7 +14,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
-import pandas as pd
 
 from app.components.data_loaders import load_overview_kpis, load_optimization_results, load_store_list
 
